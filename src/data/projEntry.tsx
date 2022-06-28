@@ -11,37 +11,65 @@ import player from "game/player";
 import type { DecimalSource } from "util/bignum";
 import Decimal, { format, formatTime } from "util/bignum";
 import { render } from "util/vue";
-import { computed, toRaw } from "vue";
-import prestige from "./layers/prestige";
+import { computed, toRaw, unref } from "vue";
+import travel from "./layers/time";
+import knowledge from "./layers/knowledge";
 
 /**
  * @hidden
  */
 export const main = createLayer("main", () => {
-    const points = createResource<DecimalSource>(10);
-    const best = trackBest(points);
-    const total = trackTotal(points);
+    const seconds = createResource<DecimalSource>(10, "seconds");
+    const best = trackBest(seconds);
+    const total = trackTotal(seconds);
 
-    const pointGain = computed(() => {
-        // eslint-disable-next-line prefer-const
-        let gain = new Decimal(1);
+    const timeGain = computed(() => {
+        let gain = new Decimal(0);
+        
+        if (travel.tickUpgrade.bought.value) {
+            gain = gain.add(-1);
+        }
+
+        if (unref(knowledge.tickSpeedIncreaseBuyable.amount.value)) {
+            gain = gain.times(Decimal.pow(1.1, knowledge.tickSpeedIncreaseBuyable.amount.value));
+        }
+
+        if (unref(knowledge.knowledgeIncreaseBuyable.amount.value)) {
+            gain = gain.div(Decimal.pow(1.2, knowledge.knowledgeIncreaseBuyable.amount.value));
+        }
+
         return gain;
     });
+
+    const tickspeed = computed(() => timeGain.value.abs());
+
     globalBus.on("update", diff => {
-        points.value = Decimal.add(points.value, Decimal.times(pointGain.value, diff));
+        if (Decimal.lte(seconds.value, 0)) {
+            seconds.value = 0;
+        } else {
+            seconds.value = Decimal.add(seconds.value, Decimal.times(timeGain.value, diff));
+        }
     });
-    const oomps = trackOOMPS(points, pointGain);
+
+    const oomps = trackOOMPS(seconds, timeGain);
 
     const tree = createTree(() => ({
-        nodes: [[prestige.treeNode]],
-        branches: [],
+        nodes: [[travel.treeNode], [knowledge.treeNode]],
+        branches: [
+            {
+                startNode: travel.treeNode,
+                endNode: knowledge.treeNode,
+            }
+        ],
         onReset() {
-            points.value = toRaw(this.resettingNode.value) === toRaw(prestige.treeNode) ? 0 : 10;
-            best.value = points.value;
-            total.value = points.value;
+            seconds.value = toRaw(this.resettingNode.value) === toRaw(travel.treeNode) ? 0 : 10;
+            best.value = seconds.value;
+            total.value = seconds.value;
         },
         resetPropagation: branchedResetPropagation
     })) as GenericTree;
+
+    knowledge.kno
 
     return {
         name: "Tree",
@@ -56,16 +84,18 @@ export const main = createLayer("main", () => {
                     <div>Offline Time: {formatTime(player.offlineTime)}</div>
                 ) : null}
                 <div>
-                    {Decimal.lt(points.value, "1e1000") ? <span>You have </span> : null}
-                    <h2>{format(points.value)}</h2>
-                    {Decimal.lt(points.value, "1e1e6") ? <span> points</span> : null}
+                    {Decimal.lt(seconds.value, "1e1000") ? <span>You have </span> : null}
+                    <h2>{format(seconds.value)}</h2>
+                    {Decimal.lt(seconds.value, "1e1e6") ? <span> seconds left</span> : null}
                 </div>
-                {Decimal.gt(pointGain.value, 0) ? <div>({oomps.value})</div> : null}
+                <div>
+                    Time is ticking down at a rate of: {format(tickspeed.value)}/s.
+                </div>
                 <Spacer />
                 {render(tree)}
             </>
         )),
-        points,
+        time: seconds,
         best,
         total,
         oomps,
@@ -76,7 +106,7 @@ export const main = createLayer("main", () => {
 export const getInitialLayers = (
     /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
     player: Partial<PlayerData>
-): Array<GenericLayer> => [main, prestige];
+): Array<GenericLayer> => [main, travel, knowledge];
 
 export const hasWon = computed(() => {
     return false;
