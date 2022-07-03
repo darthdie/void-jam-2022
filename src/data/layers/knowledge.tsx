@@ -4,7 +4,7 @@
  * @hidden
  */
 import { main } from "data/projEntry";
-import { createCumulativeConversion, createIndependentConversion, createPolynomialScaling, softcap } from "features/conversion";
+import { addSoftcap, createCumulativeConversion, createIndependentConversion, createPolynomialScaling, softcap } from "features/conversion";
 import { jsx, showIf, Visibility } from "features/feature";
 import { createReset } from "features/reset";
 import MainDisplay from "features/resources/MainDisplay.vue";
@@ -28,6 +28,7 @@ import Row from "components/layout/Row.vue";
 import machine from './machine';
 import loops from "./loops";
 import { createInfobox } from "features/infoboxes/infobox";
+import { createAdditiveModifier, createMultiplicativeModifier, createSequentialModifier } from "game/modifiers";
 
 /**
  * @hidden
@@ -45,29 +46,28 @@ const layer = createLayer("k", () => {
         thingsToReset: (): Record<string, unknown>[] => [layer]
     }));
 
-    // const knowledgeMilestone1 = createMilestone(() => ({
-    //     shouldEarn() {
-    //         return Decimal.gte(knowledgeResets.value, 1);
-    //     },
-    //     display: {
-    //         requirement: "1 Total Knowledge Resets",
-    //         effectDisplay: `"I'll do this as many times as it takes."<br\>Automatically reset time for Knowledge.`
-    //     }
-    // }));
-
-    const knowledgeMilestone2 = createMilestone(() => ({
+    const milestone1 = createMilestone(() => ({
         shouldEarn() {
-            return Decimal.gte(knowledgeResets.value, 2);
+            return Decimal.gte(knowledgeResets.value, 500);
         },
         display: {
             requirement: "500 Total Knowledge Resets",
-            effectDisplay: `"Adapting to new information."<br\>Unlock 3 new knowledge upgrades.`
+            effectDisplay: `"Adapting to new information."<br\>Unlock a new knowledge upgrade.`
         }
     }));
 
+    // const milestone2 = createMilestone(() => ({
+    //     shouldEarn() {
+    //         return Decimal.gte(knowledgeResets.value, 500);
+    //     },
+    //     display: {
+    //         requirement: "20 Total Knowledge Resets",
+    //         effectDisplay: `"Adapting to new information."<br\>Unlock 3 new knowledge upgrades.`
+    //     }
+    // }));
+
     const milestones = [
-        // knowledgeMilestone1,
-        knowledgeMilestone2,
+        milestone1,
     ];
 
     const knowledgeUnlockedMilestone = createMilestone(() => ({
@@ -183,9 +183,25 @@ const layer = createLayer("k", () => {
             },
             cost: 1e5,
             resource: knowledge,
-            visibility: () => showIf(knowledgeMilestone2.earned.value),
+            visibility: () => showIf(milestone1.earned.value),
         };
     });
+
+    // const upgrade5 = createUpgrade(() => {
+    //     const description = "Loops multiply knowledge gain.";
+    //     const boost = Decimal.times(2, Decimal.pow(knowledgeResets.value, 0.2));
+
+    //     return {
+    //         display: {
+    //             title: `"Getting into the flow of things."`,
+    //             description,
+    //             effectDisplay: `x${format(boost)}`
+    //         },
+    //         cost: 1e5,
+    //         resource: knowledge,
+    //         visibility: () => showIf(milestone1.earned.value),
+    //     };
+    // });
 
     // const upgrade4 = createUpgrade(() => {
     //     const description = "Multiply time speed based on unspent knowledge. (";
@@ -239,13 +255,19 @@ const layer = createLayer("k", () => {
     });
 
     const conversion = createCumulativeConversion(() => ({
-        scaling: createPolynomialScaling(15, 0.5),
+        scaling: createPolynomialScaling(5, 0.5),
         baseResource: loops.loop,
         gainResource: knowledge,
         roundUpCost: true,
         onConvert: (amountGained) => {
             knowledgeResets.value = Decimal.add(knowledgeResets.value, 1);
         },
+        gainModifier: createSequentialModifier(
+            createAdditiveModifier(computed(() => knowledgeIncreaseBuyable.amount.value), undefined, computed(() => Decimal.gt(knowledgeIncreaseBuyable.amount.value, 0))),
+            createAdditiveModifier(computed(() => Decimal.pow(main.timePlayed.value, 0.1)), undefined, computed(() => knowledgeBoostUpgrade2.bought.value)),
+            createAdditiveModifier(computed(() => Decimal.add(tickSpeedIncreaseBuyable.amount.value, knowledgeIncreaseBuyable.amount.value)), undefined, computed(() =>  knowledgeBoostUpgrade3.bought.value)),
+            createMultiplicativeModifier(computed(() => Decimal.times(2, Decimal.pow(knowledgeResets.value, 0.2))), undefined, computed(() => knowledgeBoostUpgrade.bought.value)),
+        )
     }));
 
     const oomps = trackOOMPS(knowledge, knowledgeGain);
@@ -253,7 +275,8 @@ const layer = createLayer("k", () => {
     const resetButton = createResetButton(() => ({
         conversion,
         tree: main.tree,
-        treeNode
+        treeNode,
+        canClick: computed(() => Decimal.gte(loops.loop.value, 5)),
     }));
 
     // globalBus.on("update", diff => {
@@ -268,15 +291,50 @@ const layer = createLayer("k", () => {
         display: "No luck yet, but if I pay attention I think I can figure out a solution.",
     }));
 
+    const loopBoost = computed(() => {
+        // let baseAmount: DecimalSource = unref(conversion.baseResource.value);
+        // if (conversion.costModifier) {
+        //     baseAmount = conversion.costModifier.apply(baseAmount);
+        // }
+        // if (Decimal.lt(baseAmount, unref(processedBase))) {
+        //     return 0;
+        // }
+
+        // const gain = Decimal.div(baseAmount, unref(processedBase)).pow(
+        //     unref(processedExponent)
+        // );
+
+        // if (gain.isNan()) {
+        //     return new Decimal(0);
+        // }
+        // return gain;
+
+        //1 + ((2 / 2) ^ 0.5)
+        return softcap(
+            softcap(Decimal.add(1, Decimal.div(knowledge.value, 2).pow(0.7)), 25, 0.3),
+            500,
+            0.1
+        );
+
+        // return addSoftcap(createPolynomialScaling(3, 0.3), 3, 0.3).currentGain();
+        // return softcap(Decimal.mul(knowledge.value, 0.01), 2, 0.5);
+    });
+
     const tabs = createTabFamily({
         ugradesTab: () => ({
             tab: createTab(() => ({
                 display: jsx(() => (
                     <>
                         <MainDisplay resource={knowledge} color={color} />
+                        <div>
+                            {<span>Which is boosting Loop gain by: x{format(loopBoost.value)}</span>}
+                        </div>
                         {/* {Decimal.gt(knowledgeGain.value, 0) ? <div>({format(knowledgeGain.value)} per reset)</div> : null} */}
                         
                         {render(resetButton)}
+                        <div>
+                            {<span>You have {format(loops.loop.value)} Loop.</span>}
+                        </div>
 
                         <Spacer />
 
@@ -334,9 +392,10 @@ const layer = createLayer("k", () => {
         knowledgeBoostUpgrade3,
         knowledgeUnlockedMilestone,
         loreBox,
-        knowledgeMilestone2,
+        knowledgeMilestone2: milestone1,
         unlockBuyablesUpgrade,
         // upgrade4,
+        loopBoost,
     };
 });
 

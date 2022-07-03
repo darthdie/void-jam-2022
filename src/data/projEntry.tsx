@@ -43,8 +43,12 @@ export const main = createLayer("main", () => {
         //     gain = gain.times(softcap(Decimal.pow(knowledge.knowledge.value, 0.05), 2, 0.002));
         // }
 
-        return gain;
+        console.log(format(gain));
+
+        return Decimal.max(Decimal.min(gain, -0.1), -3);
     });
+
+    const isTimeGainCapped = computed(() => Decimal.lte(timeGain.value, -3));
 
     const tickspeed = computed(() => timeGain.value.abs());
 
@@ -61,31 +65,32 @@ export const main = createLayer("main", () => {
     const oomps = trackOOMPS(machine.seconds, timeGain);
 
     const tree = createTree(() => {
-        let branches = computed(() => {
-            let list = [];
-            const loopsUnlocked = unref(loops.loopsUnlockedMilestone.earned.value) && loops.treeNode;
-            const knowledgeUnlocked = unref(knowledge.knowledgeUnlockedMilestone.earned.value) && knowledge.treeNode;
+        // I guess this game isn't having branches lol - this just crashes at runtime
+        // let branches = computed(() => {
+        //     let list = [];
+        //     const loopsUnlocked = unref(loops.loopsUnlockedMilestone.earned.value) && loops.treeNode;
+        //     const knowledgeUnlocked = unref(knowledge.knowledgeUnlockedMilestone.earned.value) && loopsUnlocked && knowledge.treeNode;
 
-            if (loopsUnlocked) {
-                list.push({
-                    startNode: machine.treeNode,
-                    endNode: loops.treeNode,
-                });
-            }
+        //     if (loopsUnlocked) {
+        //         list.push({
+        //             startNode: machine.treeNode,
+        //             endNode: loops.treeNode,
+        //         });
+        //     }
 
-            if (knowledgeUnlocked) {
-                list.push({
-                    startNode: loops.treeNode,
-                    endNode: knowledge.treeNode,
-                });
-            }
+        //     if (knowledgeUnlocked) {
+        //         list.push({
+        //             startNode: loops.treeNode,
+        //             endNode: knowledge.treeNode,
+        //         });
+        //     }
 
-            return list;
-        });
+        //     return list;
+        // });
 
         return {
             nodes: [[machine.treeNode], [loops.treeNode, knowledge.treeNode]],
-            branches: branches,
+            // branches: branches,
             onReset() {
                 machine.seconds.value = toRaw(this.resettingNode.value) === toRaw(machine.treeNode) ? 0 : 10;
                 machine.best.value = machine.seconds.value;
@@ -119,7 +124,7 @@ export const main = createLayer("main", () => {
                     {Decimal.lt(machine.seconds.value, "1e1e6") ? <span> seconds left</span> : null}
                 </div>
                 <div>
-                    Time is ticking down at a rate of: {format(tickspeed.value)}/s.
+                    Time is ticking down at a rate of: {format(tickspeed.value)}/s{unref(isTimeGainCapped.value) ? " (CAPPED)." : "."}
                 </div>
                 <Spacer />
                 {render(tree)}

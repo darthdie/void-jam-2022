@@ -27,10 +27,10 @@ import knowledge from "./knowledge";
 /**
  * @hidden
  */
-const id = "l";
+const id = "p";
 const layer = createLayer(id, () => {
-    const name = "Loops";
-    const color = "#4b0082";
+    const name = "The Plan";
+    const color = "#969986";
 
     const loop = createResource<DecimalSource>(0, "Loop");
     // const best = trackBest(knowledge);
@@ -196,9 +196,9 @@ const layer = createLayer(id, () => {
                 ))
             })),
             display: "Upgrades",
-            // glowColor() {
-            //     return "blue";
-            // }
+            glowColor() {
+                return "blue";
+            }
         }),
         milestonesTab: () => ({
             tab: createTab(() => ({
