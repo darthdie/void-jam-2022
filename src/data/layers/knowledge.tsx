@@ -1,10 +1,11 @@
+// @ts-ignore
 /**
  * @module
  * @hidden
  */
 import { main } from "data/projEntry";
-import { createCumulativeConversion, createIndependentConversion, createPolynomialScaling } from "features/conversion";
-import { jsx } from "features/feature";
+import { createCumulativeConversion, createIndependentConversion, createPolynomialScaling, softcap } from "features/conversion";
+import { jsx, showIf, Visibility } from "features/feature";
 import { createReset } from "features/reset";
 import MainDisplay from "features/resources/MainDisplay.vue";
 import { createResource, trackBest, trackOOMPS, trackTotal } from "features/resources/resource";
@@ -15,7 +16,6 @@ import { DecimalSource, format } from "util/bignum";
 import { render, renderCol, renderRow } from "util/vue";
 import { createLayerTreeNode, createResetButton } from "../common";
 import { createUpgrade } from "features/upgrades/upgrade";
-import { main as mainGame } from '../projEntry';
 import Decimal from "util/bignum";
 import { createMilestone } from "features/milestones/milestone";
 import { computed, unref } from "vue";
@@ -24,8 +24,10 @@ import { createTab } from "features/tabs/tab";
 import { globalBus } from "game/events";
 import { createBuyable } from "features/buyable";
 import Spacer from "components/layout/Spacer.vue";
-import Column from "components/layout/Column.vue";
 import Row from "components/layout/Row.vue";
+import machine from './machine';
+import loops from "./loops";
+import { createInfobox } from "features/infoboxes/infobox";
 
 /**
  * @hidden
@@ -43,24 +45,51 @@ const layer = createLayer("k", () => {
         thingsToReset: (): Record<string, unknown>[] => [layer]
     }));
 
-    const knowledgeMilestone1 = createMilestone(() => ({
+    // const knowledgeMilestone1 = createMilestone(() => ({
+    //     shouldEarn() {
+    //         return Decimal.gte(knowledgeResets.value, 1);
+    //     },
+    //     display: {
+    //         requirement: "1 Total Knowledge Resets",
+    //         effectDisplay: `"I'll do this as many times as it takes."<br\>Automatically reset time for Knowledge.`
+    //     }
+    // }));
+
+    const knowledgeMilestone2 = createMilestone(() => ({
         shouldEarn() {
-            return Decimal.gte(knowledgeResets.value, 1);
+            return Decimal.gte(knowledgeResets.value, 2);
         },
         display: {
-            requirement: "1 Total Knowledge Resets",
-            effectDisplay: `"I'll do this as many times as it takes."<br\>Automatically reset time for Knowledge.`
+            requirement: "500 Total Knowledge Resets",
+            effectDisplay: `"Adapting to new information."<br\>Unlock 3 new knowledge upgrades.`
         }
     }));
 
     const milestones = [
-        knowledgeMilestone1,
+        // knowledgeMilestone1,
+        knowledgeMilestone2,
     ];
+
+    const knowledgeUnlockedMilestone = createMilestone(() => ({
+        shouldEarn() {
+            return Decimal.gte(loops.loopResets.value, 3) || Decimal.gte(knowledgeResets.value, 1);
+        },
+    }));
 
     const treeNode = createLayerTreeNode(() => ({
         layerID: "k",
         color,
-        reset
+        reset,
+        visibility: () => showIf(knowledgeUnlockedMilestone.earned.value),
+    }));
+
+    const unlockBuyablesUpgrade = createUpgrade(() => ({
+        display: {
+            title: `"Recollection"`,
+            description: "Unlock 2 new Knowledge buyables."
+        },
+        cost: 10,
+        resource: knowledge
     }));
 
     const tickSpeedIncreaseBuyable = createBuyable(() => ({
@@ -81,7 +110,8 @@ const layer = createLayer("k", () => {
         style: {
             width: "256px",
             height: "176px"
-        }
+        },
+        visibility: () => showIf(unlockBuyablesUpgrade.bought.value),
     }));
 
     const knowledgeIncreaseBuyable = createBuyable(() => ({
@@ -103,7 +133,8 @@ const layer = createLayer("k", () => {
         style: {
             width: "256px",
             height: "176px"
-        }
+        },
+        visibility: () => showIf(unlockBuyablesUpgrade.bought.value),
     }));
 
     const buyables = [
@@ -111,39 +142,78 @@ const layer = createLayer("k", () => {
         knowledgeIncreaseBuyable,
     ];
 
-    //  const tickUpgrade = createUpgrade(() => ({
-    //      display: {
-    //          title: "I need to fix this",
-    //          description: "Time begins ticking down."
-    //      },
-    //      cost: 1,
-    //      resource: mainGame.time
-    //  }));
-
-    //  const upgrades = [tickUpgrade];
-
     const knowledgeBoostUpgrade = createUpgrade(() => ({
-        display: {
-            title: `"I'm slowly piecing the answer together"`,
-            description: "Multiply knowledge gain based on resets."
-        },
+        display: computed(() => {
+            const boost = Decimal.pow(main.timePlayed.value, 0.1);
+            
+            return {
+                title: `"I'm slowly piecing the answer together"`,
+                description: "Multiply knowledge gain based on resets.",
+                effectDisplay: `+${format(boost)}`
+            }
+        }),
         cost: 25,
         resource: knowledge
     }));
 
     const knowledgeBoostUpgrade2 = createUpgrade(() => ({
-        display: {
-            title: `"Perhaps if I do this, and then that."`,
-            description: "Increase base knowledge gain based on number of purchased buyables."
-        },
+        display: computed(() => {
+            const description = "Increase base knowledge gain based on total time played.";
+            const boost = format(Decimal.add(tickSpeedIncreaseBuyable.amount.value, knowledgeIncreaseBuyable.amount.value));
+
+            return {
+                title: `"My perception of time is getting weird."`,
+                description,
+                effectDisplay: `+${format(boost)}`,
+            }
+        }),
         cost: 1000,
         resource: knowledge
     }));
 
-    const upgrades = [
-        knowledgeBoostUpgrade,
-        knowledgeBoostUpgrade2,
-    ];
+    const knowledgeBoostUpgrade3 = createUpgrade(() => {
+        const description = "Increase base knowledge gain based on number of purchased buyables.";
+        const boost = Decimal.times(2, Decimal.pow(knowledgeResets.value, 0.2));
+
+        return {
+            display: {
+                title: `"Getting into the flow of things."`,
+                description,
+                effectDisplay: `x${format(boost)}`
+            },
+            cost: 1e5,
+            resource: knowledge,
+            visibility: () => showIf(knowledgeMilestone2.earned.value),
+        };
+    });
+
+    // const upgrade4 = createUpgrade(() => {
+    //     const description = "Multiply time speed based on unspent knowledge. (";
+
+    //     const boost = softcap(Decimal.pow(knowledge.value, 0.05), 2, 0.002);
+
+    //     return {
+    //         display: {
+    //             title: `"Rinse and repeat."`,
+    //             description,
+    //             effectDisplay: `x${format(boost)}`
+    //         },
+    //         cost: 1e6,
+    //         resource: knowledge,
+    //         visibility: () => showIf(knowledgeMilestone2.earned.value)
+    //     }
+    // })
+
+    const upgradeRows = [
+        [
+            unlockBuyablesUpgrade,
+            knowledgeBoostUpgrade,
+            knowledgeBoostUpgrade2,
+        ],
+        [
+            knowledgeBoostUpgrade3,
+        ]
+    ]
 
     const knowledgeGain = computed(() => {
         let gain = new Decimal(1);
@@ -154,6 +224,10 @@ const layer = createLayer("k", () => {
         }
 
         if (unref(knowledgeBoostUpgrade2.bought.value)) {
+            gain = Decimal.add(gain, Decimal.pow(main.timePlayed.value, 0.1)); // X^0.1
+        }
+
+        if (unref(knowledgeBoostUpgrade3.bought.value)) {
             gain = Decimal.add(gain, Decimal.add(tickSpeedIncreaseBuyable.amount.value, knowledgeIncreaseBuyable.amount.value));
         }
 
@@ -165,23 +239,8 @@ const layer = createLayer("k", () => {
     });
 
     const conversion = createCumulativeConversion(() => ({
-        scaling: {
-            currentGain(conversion) {
-                let amount: DecimalSource = unref(main.time.value);
-                if (new Decimal(amount).lte(0)) {
-                    return knowledgeGain.value;
-                }
-
-                return new Decimal(0);
-            },
-            currentAt(conversion) {
-                return new Decimal(0);
-            },
-            nextAt(conversion) {
-                return new Decimal(0);
-            }
-        },
-        baseResource: main.time,
+        scaling: createPolynomialScaling(15, 0.5),
+        baseResource: loops.loop,
         gainResource: knowledge,
         roundUpCost: true,
         onConvert: (amountGained) => {
@@ -197,11 +256,17 @@ const layer = createLayer("k", () => {
         treeNode
     }));
 
-    globalBus.on("update", diff => {
-        if (knowledgeMilestone1.earned.value && Decimal.lte(main.time.value, 0)) {
-            resetButton.onClick();
-        }
-    });
+    // globalBus.on("update", diff => {
+    //     if (knowledgeMilestone1.earned.value && Decimal.lte(machine.seconds.value, 0)) {
+    //         resetButton.onClick();
+    //     }
+    // });
+
+    const loreBox = createInfobox(() => ({
+        title: "Knowledge",
+        titleStyle: { color: color },
+        display: "No luck yet, but if I pay attention I think I can figure out a solution.",
+    }));
 
     const tabs = createTabFamily({
         ugradesTab: () => ({
@@ -209,14 +274,18 @@ const layer = createLayer("k", () => {
                 display: jsx(() => (
                     <>
                         <MainDisplay resource={knowledge} color={color} />
-                        {Decimal.gt(knowledgeGain.value, 0) ? <div>({format(knowledgeGain.value)} per reset)</div> : null}
+                        {/* {Decimal.gt(knowledgeGain.value, 0) ? <div>({format(knowledgeGain.value)} per reset)</div> : null} */}
+                        
                         {render(resetButton)}
+
                         <Spacer />
-                        {renderRow(...upgrades)}
+
+                        {upgradeRows.map(col => (<Row>{col.map(u => renderCol(u))}</Row>))}
+
                         <Spacer />
+
                         <Row>
-                            {renderCol(tickSpeedIncreaseBuyable)}
-                            {renderCol(knowledgeIncreaseBuyable)}
+                            {buyables.map(b => renderCol(b))}
                         </Row>
                         
                     </>
@@ -251,7 +320,7 @@ const layer = createLayer("k", () => {
         treeNode,
         knowledge,
         knowledgeResets,
-        knowledgeMilestone1,
+        // knowledgeMilestone1,
         resetButton,
         conversion,
         reset,
@@ -262,6 +331,12 @@ const layer = createLayer("k", () => {
         knowledgeGain,
         knowledgeBoostUpgrade,
         knowledgeBoostUpgrade2,
+        knowledgeBoostUpgrade3,
+        knowledgeUnlockedMilestone,
+        loreBox,
+        knowledgeMilestone2,
+        unlockBuyablesUpgrade,
+        // upgrade4,
     };
 });
 
