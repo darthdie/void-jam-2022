@@ -119,9 +119,9 @@ export const main = createLayer("main", () => {
                     <div>Offline Time: {formatTime(player.offlineTime)}</div>
                 ) : null}
                 <div>
-                    {Decimal.lt(machine.seconds.value, "1e1000") ? <span>You have </span> : null}
+                    <span>You have </span>
                     <h2>{format(machine.seconds.value)}</h2>
-                    {Decimal.lt(machine.seconds.value, "1e1e6") ? <span> seconds left</span> : null}
+                    <span> seconds left</span>
                 </div>
                 <div>
                     Time is ticking down at a rate of: {format(tickspeed.value)}/s{unref(isTimeGainCapped.value) ? " (CAPPED)." : "."}
